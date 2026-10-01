@@ -1,137 +1,166 @@
-# YBSF-55: data preparation
+# YBSF-55 Reference Annotations and SITS-SFNet Code
 
-This repository is a preparation-stage package for the YBSF-55 sea-fog dataset. It documents the verified processing steps and provides configurable three-frame assembly, SITS-SFNet/U-Net training, inference and checkpoint-derived ablation architectures. Raw satellite observations and the large intermediate AHI NumPy arrays are not redistributed in this repository. Readers should obtain source observations from NICT Science Cloud and follow the acquisition selection and preprocessing description below. Author-created ground-truth annotations are a separate accompanying resource; their release link will be added when available. The upstream preprocessing implementation is not bundled, so this is not an automated end-to-end reproduction package.
+This repository provides the reference annotations, model code, preprocessing utilities, and evaluation tools associated with the YBSF-55 sea-fog dataset and SITS-SFNet experiments. It includes the released ground-truth annotations, three-frame sequence assembly, SITS-SFNet and baseline implementations, training and inference scripts, comparison methods, and metadata describing the observation dates.
 
-For model installation and commands see [Running the models](docs/RUNNING.md). See [Code migration and ablation findings](docs/CODE_MIGRATION.md) before interpreting historical checkpoints: the file named `SITS_SFNet.h5` does not match the current full-model Python definition. Executed checks are recorded in [Validation](docs/VALIDATION.md).
+The raw Himawari-8 observations and large intermediate AHI arrays are not redistributed here. Readers can obtain the source observations from the NICT Science Cloud and prepare the model inputs following the workflow below.
 
-The six comparison methods (DeepLabV3+, SegFormer, SegNet, dynamic threshold, three-channel U-Net and 16-channel U-Net) are documented in [Comparison experiments](docs/COMPARISONS.md), including their environments, commands, retained input conventions and corrections that can affect results.
+For installation, training, and inference commands, see [Running the models](docs/RUNNING.md). Validation checks for the released code are summarized in [Validation](docs/VALIDATION.md). The comparison methods used in the experiments are documented in [Comparison experiments](docs/COMPARISONS.md).
 
-## Raw observations, acquisition, and preprocessing
+## Repository contents
 
-### Observation source and download
+- [`ground_truth.zip`](ground_truth.zip): released YBSF-55 reference annotations.
+- [`metadata/observation_dates.csv`](metadata/observation_dates.csv): observation-date and frame inventory.
+- [`metadata/ground_truth_alignment.csv`](metadata/ground_truth_alignment.csv): timestamp correspondence between annotations and available observation sequences.
+- [`scripts/build_sequences.py`](scripts/build_sequences.py): three-frame sample assembly.
+- [`sits_sfnet/`](sits_sfnet): SITS-SFNet, U-Net baselines, DeepLabV3+, SegNet, SegFormer, dynamic-threshold baseline, prediction, visualization, and evaluation code.
+- [`docs/RUNNING.md`](docs/RUNNING.md): environment and execution instructions.
+- [`docs/COMPARISONS.md`](docs/COMPARISONS.md): comparison-method configurations.
+- [`docs/OPTICAL_FLOW.md`](docs/OPTICAL_FLOW.md): optical-flow utilities.
+- [`docs/VALIDATION.md`](docs/VALIDATION.md): software validation record.
 
-The source observations are Himawari-8 Advanced Himawari Imager (AHI) multispectral data in Himawari Standard Data (HSD) format. The study region extends from **30°N to 42°N and 117°E to 129°E**. The current processed inventory contains **55 distinct observation dates during 2016–2020**. The name YBSF-55 refers to 55 observation dates, not necessarily 55 independent fog events. Consecutive observation days are treated as one fog episode under the authors' grouping convention.
+## Raw observations and study region
 
-According to the authors, the Himawari-8 standard data were downloaded through the **Science Cloud of the National Institute of Information and Communications Technology (NICT), Japan**, with the source attributed to JMA's Meteorological Satellite Center. The historical [NICT Science Cloud download link](https://sc-nc-web.nict.go.jp/wsdb_osndisk/shareDirDownload/03ZzRnKS?lang=en) was cited as accessed on **15 March 2020**. This historical access date predates some dataset observations and must not be interpreted as the acquisition date of the entire 2016–2020 collection. Use the provider's current access conditions when obtaining data. The historical link has not been confirmed to remain active; this README does not guarantee anonymous access or continued availability of every historical file.
+The source observations are Himawari-8 Advanced Himawari Imager (AHI) multispectral data in Himawari Standard Data (HSD) format. The study region covers **30°N–42°N and 117°E–129°E**. YBSF-55 contains **55 observation dates from 2016 to 2020**. Consecutive observation days may belong to the same sea-fog episode; the dataset name refers to observation dates rather than a count of independent meteorological events.
 
-To obtain the source observations:
+The source Himawari-8 observations were obtained through the **Science Cloud of the National Institute of Information and Communications Technology (NICT), Japan**, with the satellite data provided by the Japan Meteorological Agency (JMA). The current observation-date inventory is listed in [`metadata/observation_dates.csv`](metadata/observation_dates.csv).
 
-1. Visit the [NICT Science Cloud data service](https://sc-nc-web.nict.go.jp/) and use the historical download link above if it remains available. Locate the Himawari-8 HSD archive and follow the provider's current access instructions. The repository does not include a downloader or provider credentials.
-2. Select the 55 observation dates in [observation_dates.csv](metadata/observation_dates.csv), with nominal time slots **03:00–05:20 at 10-minute intervals**, and all **16 bands B01–B16**. Raw HSD filename times are UTC; confirm correspondence with the annotation timestamps before pairing derived files.
-3. Obtain the segments covering **30°N–42°N, 117°E–129°E**. The inspected raw example uses **S0210 and S0310** for each band. Verify coverage using the reader's geolocation; acquire additional segments if needed rather than treating the example as a universal coverage guarantee.
-4. Preserve provider filenames, decompress archives when necessary, and check that files are complete and readable. For the inspected two-segment selection, expect **32 DAT files per time slot** or **480 for 15 complete slots**. Exclude unfinished transfer files.
-5. Apply the calibration, solar-angle correction, regional reprojection and common-grid preparation described below. Save aligned single-time 16-channel arrays as `YYYYMMDDHHMM.npy`, then assemble three-frame samples with the supplied script. That script starts from prepared arrays, not DAT files.
+Source data service:
 
-The date inventory records the authors' local holdings, including missing time slots; it is not a claim that the provider archive has the same gaps.
+- [NICT Science Cloud](https://sc-nc-web.nict.go.jp/)
+- [JMA Himawari Standard Data User's Guide](https://www.data.jma.go.jp/mscweb/en/himawari89/space_segment/hsd_sample/HS_D_users_guide_en_v13.pdf)
 
-Example filename: `HS_H08_20201228_0300_B01_FLDK_R10_S0210.DAT`. JMA defines H08 as Himawari-8, FLDK as full disk, B01 as band 1, R10 as nominal 1.0-km resolution at the sub-satellite point, and S0210 as segment 2 of 10. HSD filename times are UTC; this does not independently establish whether derived NPY filenames were ever time-zone converted. See the [JMA HSD User's Guide, v1.3](https://www.data.jma.go.jp/mscweb/en/himawari89/space_segment/hsd_sample/HS_D_users_guide_en_v13.pdf).
+For each selected date, the study uses all 16 AHI bands and nominal observation times from **03:00 to 05:20 at 10-minute intervals**. Source HSD segments should be selected to cover the full study region.
 
-### Processing stages and evidence boundaries
+## Data preparation and model input
 
-1. **Radiometric calibration and solar correction — author-described method; implementation pending archival.** The authors report radiometric calibration of the level-0 AHI observations to reflectance and brightness temperature, followed by solar-elevation-angle correction of the visible and near-infrared observations. The exact calibration coefficients, correction formula, channel mapping, physical units and integer scaling/fill conventions must be recovered from the historical implementation. The phrase level-0 is retained from the authors' description; no separate product-level validation has been performed.
-2. **Region extraction and common grid — author-described method; implementation pending archival.** All channels were converted to an equidistant latitude–longitude projection over 30°N–42°N and 117°E–129°E. The authors describe the output as nominal 2-km spatial resolution, with channels originally finer than 2 km resampled to a common size of **600 × 600**. For this 12° × 12° extent, 600 cells per axis correspond to approximately 0.02° angular spacing; nominal 2 km does not imply identical ground-distance spacing at every latitude. Exact grid registration, interpolation kernel, processing order and software versions remain to be recovered. A currently inspected intermediate file, `202012280300.npy` in `ROI_latlon_1km`, is `(1200, 1200, 16)` `int16`; its specific conversion to the final 600 × 600 arrays has not been verified in code. The packaged script therefore does not silently resample this intermediate product.
-3. **Cloud predictions — required external input.** The legacy cloud classifier clips each channel to fixed ranges, normalizes it and predicts three classes. Its historical model, mask semantics and environment must be packaged and verified separately. This package accepts aligned single-channel predictions with indices 0, 1 and 2; it does not regenerate them.
-4. **Three-frame assembly — implemented.** For each label timestamp `t`, read arrays at `t`, `t−10 min` and `t−20 min`, in that order. Require all three files; do not fill temporal gaps. Each frame contributes 16 channels. Labels are resized with nearest-neighbor interpolation. Spectral frames and cloud predictions must already match the requested dimensions.
-5. **Motion and auxiliary channels — implemented.** Compute Farneback flow from `t−10` to `t` and from `t−20` to `t−10`, using array channel index 2. Parameters are `(0.5, 3, 15, 5, 7, 1.5, 0)`. Average the flow vectors, take their magnitude, clip to [0, 30], scale to [0, 255] and cast to `uint16`. Preserve the historical duplication of this magnitude in two channels; these are not horizontal/vertical components. Cloud indices are converted to three one-hot channels.
-6. **Storage — implemented.** Store `(600, 600, 54)` `uint16` arrays by default: channels 0–15 current frame; 16–31 previous frame; 32–47 earliest frame; 48–50 cloud one-hot channels; 51–52 duplicated motion magnitude; 53 target label. Label indices are 0–4, as defined in the annotation table below. Inputs with negative values, non-integer values or values beyond `uint16` are rejected rather than silently wrapped. Resolve their physical meaning upstream.
+The preprocessing workflow used for the study is summarized as follows.
 
-Fifteen consecutive input frames provide thirteen candidate target windows (03:20–05:20). The current filename inventory contains 817 frames and 696 valid three-frame windows, compared with 825 frames and 715 windows for a complete 55 × 15 inventory. The eight absent frames affect nineteen windows. These counts do not verify array integrity, annotations or auxiliary-input availability, and therefore are not final training-sample counts.
+1. **Radiometric preparation.** AHI observations are calibrated to reflectance or brightness temperature as appropriate for each band. Solar-elevation correction is applied to the reflective channels.
+2. **Regional extraction and common grid.** All channels are mapped to the study region and prepared on a common **600 × 600** grid at approximately 2-km spatial sampling.
+3. **Three-frame temporal input.** For a target time (t), the model uses observations at (t), (t-10) min, and (t-20) min. Each frame contributes 16 spectral channels.
+4. **Cloud auxiliary information.** Three aligned cloud-class channels are represented by one-hot encoding of the auxiliary cloud prediction.
+5. **Motion representation.** Farneback optical flow is calculated between the two consecutive frame pairs using channel index 2. The two flow fields are averaged, converted to magnitude, clipped to [0, 30], and scaled to [0, 255]. The resulting motion magnitude is stored in two auxiliary channels, following the input definition used in the study.
+6. **Combined sample.** The assembled array has shape **600 × 600 × 54**: 53 model-input channels and one target-label channel.
 
-| Year | Dates | Frames | Candidate three-frame windows |
-| --- | ---: | ---: | ---: |
-| 2016 | 10 | 149 | 127 |
-| 2017 | 2 | 30 | 26 |
-| 2018 | 18 | 265 | 222 |
-| 2019 | 8 | 120 | 104 |
-| 2020 | 17 | 253 | 217 |
-| Total | 55 | 817 | 696 |
+The channel layout is:
 
-## Manual annotation and label dimensions
+| Channels | Content |
+| --- | --- |
+| 0–15 | Current frame (t) |
+| 16–31 | Previous frame (t-10) min |
+| 32–47 | Earliest frame (t-20) min |
+| 48–50 | Three one-hot cloud channels |
+| 51–52 | Motion-magnitude channels |
+| 53 | Target label |
 
-The reference annotations were drawn manually in Adobe Photoshop on imagery aligned with the AHI observations. Sea fog and clouds were painted on separate layers: gray denotes sea fog, light blue denotes cloud, and their gray-blue overlap denotes **cloud-obscured sea fog**, a separate category. After applying the land mask, the remaining ocean area is seawater. Colors encode categories rather than continuous image intensities. The original class indices are retained:
+The sequence builder requires complete three-frame observations for a target timestamp; incomplete temporal windows are skipped rather than interpolated.
 
-| Class index | Category | Display color | RGB in the packaged visualizer |
+## Reference annotations
+
+The released annotations are provided in [`ground_truth.zip`](ground_truth.zip). They were manually produced in Adobe Photoshop on imagery aligned with the AHI observations. Sea fog and cloud were annotated on separate layers, allowing their overlap to be retained as a distinct **cloud-obscured sea fog** category.
+
+The five classes used by the model are:
+
+| Class index | Category | Display color | RGB |
 | --- | --- | --- | --- |
 | 0 | Land | Black | (0, 0, 0) |
-| 1 | Seawater | Dark blue | (8, 49, 73) |
+| 1 | Clear ocean | Dark blue | (8, 49, 73) |
 | 2 | Sea fog | Gray | (174, 174, 174) |
 | 3 | Cloud | Light blue | (137, 217, 222) |
 | 4 | Cloud-obscured sea fog | Gray-blue | (113, 162, 165) |
 
-The RGB values specify the packaged visualization palette; they are not a requirement that every pixel in historical rendered images exactly matches these values. No label reconstruction from color images is performed by this package.
+The colors are used for visualization; model training and evaluation use categorical class indices. Class 4 is retained as an independent class and is not merged into sea fog.
 
-**Evaluation excludes reference land pixels (class 0). Cloud-obscured sea fog remains a separate class and is not merged into sea fog.** Seawater remains background in the evaluation domain so that false fog/cloud predictions over seawater are counted. The shared evaluator aggregates pixel counts across the supplied images; this describes the released evaluator, not a verified historical averaging convention.
+For evaluation, reference land pixels (class 0) are excluded from the reported ocean-domain metrics. Predictions over valid ocean pixels are still evaluated normally, including false predictions of land over ocean.
 
-There are two distinct label sizes in the existing workflow:
+## Temporal correspondence
 
-- **Full-region label: 600 × 600.** The sequence-assembly script resizes the label to this size using nearest-neighbor interpolation and stores it in the final channel of the combined array.
-- **Network training target: 256 × 256.** `SITS_SFNet/mode_train_sits_fog_net.py` randomly crops the same 256 × 256 spatial window from all input channels and the label. It does not resize the full scene to 256 × 256. Prediction patches are subsequently assembled into a 600 × 600 regional output.
+Each target annotation at time (t) is paired with one three-frame observation sequence ending at that time:
 
-The code establishes these dimensions, but does not record why 600 × 600 was chosen. The author-described 2-km regional product is consistent with that size; computational efficiency should not be presented as the verified historical reason.
+[
+(t-20 mathrm{min}, t-10 mathrm{min}, t).
+]
 
-## Dataset files and temporal correspondence
+For example, an annotation named `202012280320_groundtruth_vis.png` corresponds to the sequence ending at 03:20 and therefore uses observations at 03:00, 03:10, and 03:20.
 
-The following layout describes the authors' local observation inventory and the separate annotation resource. **The AHI directory is not an uploaded dataset archive**; retain this naming convention when preparing observations downloaded from the source:
-
-```text
-AHI/
-  ROI_latlon_1km/
-    2016/ ... 2020/
-      YYYYMMDDHHMM.npy
-ground_truth/
-  YYYYMMDDHHMM_groundtruth_vis.png
-```
-
-- **Local AHI NumPy inventory (not distributed):** `AHI/ROI_latlon_1km` contains 817 single-time arrays across 55 observation dates (2016–2020), totaling approximately 37.65 GB uncompressed. The inspected array has shape `(1200, 1200, 16)` and dtype `int16`, with spatial axes followed by the 16 AHI channels. These intermediate arrays are distinct from the assembled `(600, 600, 54)` model samples described above; they do not themselves contain three time steps or a target-label channel. Stored integer values should not be assumed to be physical reflectance or temperature without the upstream encoding information.
-- **Reference annotation images:** `ground_truth` contains 427 color PNG images (approximately 127 MB), named by their target timestamp. The existing exported images are 1350 × 1350 RGBA visualizations of the manual annotation categories. Their rendered dimensions are distinct from the 600 × 600 regional training labels. These color images document the reference annotations; the provided training and evaluation programs require class-index labels, not direct RGB/RGBA input.
-- **One sequence, one annotation:** a target at time `t` is paired with observations at `t`, `t−10 minutes`, and `t−20 minutes`. For example, `202012280320_groundtruth_vis.png` corresponds to the sequence ending at 03:20, using 03:20, 03:10, and 03:00 observations. Each three-frame window has one target annotation, not one annotation per input frame. Missing frames are not interpolated.
-- **Coverage:** the current inventory provides 696 candidate three-frame windows, not 696 annotated samples. Of the 427 annotation images, 417 match complete windows in the listed AHI inventory. The other 10 belong to 2020-06-04, an additional annotation date without matching observations in this inventory; retain these as additional annotations rather than counting them as paired YBSF-55 samples. See `metadata/ground_truth_alignment.csv` for the pairing inventory.
-
-These counts and sizes were checked on 30 September 2026. To avoid redistributing large satellite files, neither the raw DAT observations nor the approximately 37.65 GB intermediate NumPy collection will be uploaded with this release. Their local inventory is retained to document the observation selection and temporal coverage. Readers obtain the observations from the original provider and prepare their own arrays using the workflow above.
-
-The author-created `ground_truth` images remain a separate planned annotation release; they cannot be obtained from the satellite provider. Their download location will be added once published. No data files have been moved, deleted or uploaded during this documentation update. The `.gitignore` continues to exclude large NumPy and DAT files from ordinary Git tracking.
-
-The supplied code covers sequence assembly, optical-flow features and model workflows. The exact historical DAT-to-array implementation and 1200-to-600 grid conversion are not included; the preprocessing description is methodological guidance, not a claim that these missing steps can already be reproduced by a provided command.
+The timestamp correspondence is recorded in [`metadata/ground_truth_alignment.csv`](metadata/ground_truth_alignment.csv). This file can be used to identify annotations with complete temporal inputs when preparing experiments.
 
 ## Training configuration
 
-The author-reported SITS-SFNet training settings are:
+The SITS-SFNet training configuration used in the study is:
 
 | Setting | Value |
 | --- | --- |
-| Input patch | 256 × 256 pixels, cropped from the regional sample |
+| Input patch | 256 × 256 pixels |
 | Initial learning rate | 0.001 |
+| Optimizer | Adam |
 | Loss | Sparse categorical cross-entropy |
 | Batch size | 64 |
 | Epochs | 100 |
 
-The shared training entry point uses Adam and these learning-rate, batch-size, and epoch defaults. See `docs/RUNNING.md` for the command and documented changes to sampling and validation. Comparison-specific settings, including SegFormer, remain documented separately in `docs/COMPARISONS.md`. Excluding land from reported evaluation does not change the historical training loss, which includes class 0. Training settings describe how a model is trained; trained weight files are separate artifacts and are not bundled here.
+Training operates on 256 × 256 crops sampled from the 600 × 600 regional scenes. Class 0 is included during training, while reference land pixels are excluded when reporting the ocean-domain evaluation metrics.
 
-To evaluate aligned class-index predictions and reference labels:
+See [`docs/RUNNING.md`](docs/RUNNING.md) for the current training, prediction, and visualization commands.
+
+## Running the included scripts
+
+Use Python 3.10 or later. The tested environment and dependency versions are documented in [`docs/RUNNING.md`](docs/RUNNING.md) and [`docs/VALIDATION.md`](docs/VALIDATION.md).
+
+Install the core dependencies with:
+
+```text
+python -m pip install -r requirements.txt
+```
+
+Audit an observation directory:
+
+```text
+python scripts/audit_frames.py --frames data/ROI_latlon_1km --output outputs/observation_dates.csv
+```
+
+Build three-frame samples:
+
+```text
+python scripts/build_sequences.py --frames data/ROI_data --labels data/labels --cloud data/cloud_predictions --output outputs/sequences
+```
+
+Frame filenames must follow `YYYYMMDDHHMM.npy`. The sequence builder expects aligned 16-channel observation arrays, categorical label masks, and three-class cloud predictions. It validates dimensions, class indices, and numeric ranges before writing the combined samples.
+
+Evaluate class-index predictions:
 
 ```text
 python -m sits_sfnet.evaluate --predictions outputs/predictions --labels data/class_labels --list data/splits/test_stems.txt --output outputs/metrics.json --ignore-class 0
 ```
 
-Do not enable `--merge-overlap-into-fog` for the study's separate cloud-obscured sea-fog category.
+For the study protocol, keep **cloud-obscured sea fog** as a separate class.
 
-## Running the included scripts
+## Comparison methods
 
-Use Python 3.10 or later. Install dependencies with `python -m pip install -r requirements.txt`. The compatibility ranges are provisional; the smoke-test environment is recorded in `docs/PREPARATION_NOTES.md`.
+The repository includes the six comparison methods used in the experiments:
 
-```text
-python scripts/audit_frames.py --frames data/ROI_latlon_1km --output outputs/observation_dates.csv
-python scripts/build_sequences.py --frames data/ROI_data --labels data/labels --cloud data/cloud_predictions --output outputs/sequences
-```
+- Dynamic threshold
+- Three-channel U-Net
+- Sixteen-channel U-Net
+- SegNet
+- DeepLabV3+
+- SegFormer
 
-Frame filenames must be `YYYYMMDDHHMM.npy`; year subfolders are supported. Label PNG names must begin with the target timestamp. The matching cloud file is `<label_stem>_predict.png`. Labels and cloud inputs are class-index images, not RGB visualizations. Default dimensions are 600 × 600; supplying 1200 × 1200 inputs causes an explicit error rather than undocumented downsampling. The sequence output directory must not already exist. Each run writes `build_report.json`, including missing-frame skips and validation errors; any validation error produces a nonzero exit status.
+Their input requirements, training commands, and evaluation procedures are provided in [`docs/COMPARISONS.md`](docs/COMPARISONS.md).
 
-The scripts do not modify their inputs. Large data, models, secrets and unfinished downloads are excluded by `.gitignore`. Metadata includes dates and counts only. No observation archive, credentials or pretrained model is bundled. The original observation-source link is given above; the annotation download link is pending.
+## Validation
 
-## Release status
+The released implementation has been checked with unit tests and end-to-end smoke tests covering sequence assembly, channel placement, input validation, model construction, serialization, prediction tiling, comparison methods, and evaluation. The tested software environment and validation commands are recorded in [`docs/VALIDATION.md`](docs/VALIDATION.md).
 
-Release scope: code, documentation and observation metadata, with author-created annotations to be linked separately. Raw observations and intermediate AHI arrays are obtained/prepared by readers rather than rehosted here. Annotation access, citation details, licenses and any auxiliary-model release will be added as available. No open-source or redistribution license is asserted on behalf of the authors or data provider. This directory is staged locally; it has not been uploaded.
+These checks verify the released software workflow. Scientific results reported in the paper should be reproduced using the same dataset split, preprocessing settings, and experiment configuration described in the paper.
 
-## Optical-flow utilities
+## Data availability
 
-See [Optical flow](docs/OPTICAL_FLOW.md) for two-image Farneback calculation, saved arrow visualizations and inspection of stored sequence motion magnitudes. These utilities consolidate the original optical-flow exploration scripts without changing model feature assembly.
+The repository distributes the author-created YBSF-55 reference annotations through [`ground_truth.zip`](ground_truth.zip), together with the code and metadata required to interpret the temporal samples.
+
+The original Himawari-8 HSD observations are not redistributed. They should be obtained from the NICT/JMA source and used in accordance with the provider's terms. Large intermediate AHI arrays are likewise not hosted in this repository.
+
+## Citation
+
+When using the released annotations or code, please cite the associated paper and this repository:
+
+> Y. Tang, "YBSF-55 reference annotations and SITS-SFNet code," GitHub, 2026. Available: https://github.com/TangYuzhu/SITS-SFNet.
