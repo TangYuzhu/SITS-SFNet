@@ -1,0 +1,7 @@
+{
+  "original_parameters": 11799725,
+  "clean_parameters": 11799725,
+  "maximum_absolute_difference": 0.0,
+  "input": "seeded nonconstant synthetic float32",
+  "result": "passed"
+}

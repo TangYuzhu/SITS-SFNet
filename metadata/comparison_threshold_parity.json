@@ -1,0 +1,5 @@
+{
+  "threshold_parity": "passed",
+  "pixels_compared": 4096,
+  "dynamic_threshold": -0.5
+}

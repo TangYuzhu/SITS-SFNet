@@ -1,0 +1,7 @@
+# Python 3.12; TensorFlow 2.16 with legacy Keras for historical H5 graphs.
+tensorflow==2.16.2
+tf-keras==2.16.0
+numpy==1.26.4
+h5py==3.11.0
+Pillow==10.4.0
+opencv-python-headless==4.10.0.84

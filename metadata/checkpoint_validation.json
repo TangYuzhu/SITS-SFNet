@@ -1,0 +1,37 @@
+[
+  {
+    "file": "Base/Base.h5",
+    "parameters": 11777829,
+    "forward": "passed"
+  },
+  {
+    "file": "Base+CA/Base+CA.h5",
+    "parameters": 11778125,
+    "forward": "passed"
+  },
+  {
+    "file": "Base+MA/Base+MA.h5",
+    "parameters": 11782149,
+    "forward": "passed"
+  },
+  {
+    "file": "Base+SA/Base+SA.h5",
+    "parameters": 11790789,
+    "forward": "passed"
+  },
+  {
+    "file": "sits_fog_net_bak1.h5",
+    "parameters": 11795405,
+    "forward": "passed"
+  },
+  {
+    "file": "sits_fog_net_bak2.h5",
+    "parameters": 11779277,
+    "forward": "passed"
+  },
+  {
+    "file": "SITS_SFNet/SITS_SFNet.h5",
+    "parameters": 11790789,
+    "forward": "passed"
+  }
+]

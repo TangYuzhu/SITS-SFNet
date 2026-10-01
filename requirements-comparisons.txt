@@ -1,0 +1,2 @@
+-r requirements-training.txt
+transformers==4.44.2

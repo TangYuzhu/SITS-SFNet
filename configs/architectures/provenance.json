@@ -1,0 +1,37 @@
+[
+  {
+    "variant": "base",
+    "source": "Base/Base.h5",
+    "sha256": "fed5afd6b3ab6124abd901f8ceeaf3273761be906ec1c45218d539231c967dc2",
+    "keras_version": "2.10.0",
+    "backend": "tensorflow"
+  },
+  {
+    "variant": "base_ca",
+    "source": "Base+CA/Base+CA.h5",
+    "sha256": "d8a3247046a0877fc6de8f62763b5936230a610464506b990df8fe4597c554db",
+    "keras_version": "2.10.0",
+    "backend": "tensorflow"
+  },
+  {
+    "variant": "base_ma",
+    "source": "Base+MA/Base+MA.h5",
+    "sha256": "688962c2e22498476b7195017e0873e8c6ddbe579426f899cf963f3356506ab1",
+    "keras_version": "2.10.0",
+    "backend": "tensorflow"
+  },
+  {
+    "variant": "base_sa",
+    "source": "Base+SA/Base+SA.h5",
+    "sha256": "51f9b4c960f4ee5352f9970ff61855cf7c7cc094995691fa9e02493753233a2f",
+    "keras_version": "2.10.0",
+    "backend": "tensorflow"
+  },
+  {
+    "variant": "checkpoint_full",
+    "source": "SITS_SFNet/SITS_SFNet.h5",
+    "sha256": "41f3c50db7c21e7c3cdd461ef181af4a1904495e31418d87f30cb73b7b87a8ff",
+    "keras_version": "2.10.0",
+    "backend": "tensorflow"
+  }
+]
